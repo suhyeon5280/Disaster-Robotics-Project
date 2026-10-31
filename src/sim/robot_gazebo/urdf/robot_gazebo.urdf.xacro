@@ -1,0 +1,120 @@
+<?xml version="1.0"?>
+<!--
+  시뮬레이션용 로봇: robot_description의 모델에 Gazebo 설정만 더한다.
+  실물 모터부(robot_base)와 LiDAR 드라이버 대신 같은 인터페이스를 낸다:
+    /cmd_vel 수신, /odom + TF odom→base_link 발행, /scan(frame laser) 발행.
+  치수(wheel_separation, wheel_radius)는 robot.urdf.xacro의 property를 그대로 쓴다.
+-->
+<robot name="robot" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!--
+    바퀴 충돌체를 구로 바꾼다. 원기둥이면 ODE가 바퀴 안쪽/바깥쪽 모서리 두 점으로 바닥에 닿게 처리해서
+    제자리 회전 때 바퀴가 끌리고(실제 회전이 명령보다 약 7% 적음) 오도메트리가 크게 어긋났다.
+    include보다 먼저 선언해야 robot.urdf.xacro의 기본값(cylinder)보다 우선한다.
+  -->
+  <xacro:arg name="wheel_collision" default="sphere"/>
+
+  <xacro:include filename="$(find robot_description)/urdf/robot.urdf.xacro"/>
+
+  <!-- 모터: JGA25-370 정지 토크 대략값. 실물 측정값이 아니다. -->
+  <xacro:property name="max_wheel_torque" value="0.5"/>         <!-- N·m -->
+  <xacro:property name="max_wheel_acceleration" value="1.0"/>   <!-- m/s² -->
+
+  <!-- RPLIDAR A1M8-R6 사양: 360°, 0.15~12m, 일반 회전 속도 약 5.5Hz -->
+  <xacro:property name="laser_samples" value="360"/>
+  <xacro:property name="laser_min_range" value="0.15"/>
+  <xacro:property name="laser_max_range" value="12.0"/>
+  <xacro:property name="laser_update_rate" value="5.5"/>
+  <xacro:property name="laser_noise_stddev" value="0.01"/>       <!-- m -->
+
+  <!-- ===== 마찰: 구동 바퀴는 바닥을 잡고, 볼 캐스터는 미끄러진다 ===== -->
+  <xacro:macro name="wheel_surface" params="link">
+    <gazebo reference="${link}">
+      <mu1>1.0</mu1>
+      <mu2>1.0</mu2>
+      <kp>500000.0</kp>
+      <kd>10.0</kd>
+      <minDepth>0.001</minDepth>
+      <maxVel>0.1</maxVel>
+    </gazebo>
+  </xacro:macro>
+  <xacro:wheel_surface link="left_wheel"/>
+  <xacro:wheel_surface link="right_wheel"/>
+
+  <gazebo reference="front_caster">
+    <mu1>0.0</mu1>
+    <mu2>0.0</mu2>
+  </gazebo>
+  <gazebo reference="rear_caster">
+    <mu1>0.0</mu1>
+    <mu2>0.0</mu2>
+  </gazebo>
+
+  <gazebo>
+    <!-- ===== 차동구동: 실물 robot_base 대신 /cmd_vel → 바퀴, 바퀴 → /odom, TF ===== -->
+    <plugin name="diff_drive" filename="libgazebo_ros_diff_drive.so">
+      <update_rate>50</update_rate>
+      <left_joint>left_wheel_joint</left_joint>
+      <right_joint>right_wheel_joint</right_joint>
+      <wheel_separation>${wheel_separation}</wheel_separation>
+      <wheel_diameter>${2 * wheel_radius}</wheel_diameter>
+      <max_wheel_torque>${max_wheel_torque}</max_wheel_torque>
+      <max_wheel_acceleration>${max_wheel_acceleration}</max_wheel_acceleration>
+      <command_topic>cmd_vel</command_topic>
+      <odometry_topic>odom</odometry_topic>
+      <odometry_frame>odom</odometry_frame>
+      <robot_base_frame>base_link</robot_base_frame>
+      <!-- 0: 바퀴 회전으로 계산 (실물처럼 미끄러지면 오차가 쌓인다) -->
+      <odometry_source>0</odometry_source>
+      <publish_odom>true</publish_odom>
+      <publish_odom_tf>true</publish_odom_tf>
+      <!-- 바퀴 TF는 robot_state_publisher가 /joint_states로 낸다 -->
+      <publish_wheel_tf>false</publish_wheel_tf>
+    </plugin>
+
+    <!-- 바퀴 각도 → /joint_states (실물의 joint_state_publisher 대신) -->
+    <plugin name="joint_states" filename="libgazebo_ros_joint_state_publisher.so">
+      <update_rate>30</update_rate>
+      <joint_name>left_wheel_joint</joint_name>
+      <joint_name>right_wheel_joint</joint_name>
+    </plugin>
+  </gazebo>
+
+  <!-- ===== LiDAR: 실물 sllidar_ros2 대신 /scan ===== -->
+  <gazebo reference="laser">
+    <sensor name="rplidar_a1" type="ray">
+      <always_on>true</always_on>
+      <visualize>true</visualize>
+      <update_rate>${laser_update_rate}</update_rate>
+      <ray>
+        <scan>
+          <horizontal>
+            <samples>${laser_samples}</samples>
+            <resolution>1</resolution>
+            <!-- 0°~359°: 마지막 점이 첫 점(0° = 360°)과 겹치지 않게 한 칸 덜 간다 -->
+            <min_angle>0.0</min_angle>
+            <max_angle>${2 * pi - 2 * pi / laser_samples}</max_angle>
+          </horizontal>
+        </scan>
+        <range>
+          <min>${laser_min_range}</min>
+          <max>${laser_max_range}</max>
+          <resolution>0.01</resolution>
+        </range>
+        <noise>
+          <type>gaussian</type>
+          <mean>0.0</mean>
+          <stddev>${laser_noise_stddev}</stddev>
+        </noise>
+      </ray>
+      <plugin name="scan" filename="libgazebo_ros_ray_sensor.so">
+        <ros>
+          <remapping>~/out:=scan</remapping>
+        </ros>
+        <output_type>sensor_msgs/LaserScan</output_type>
+        <frame_name>laser</frame_name>
+      </plugin>
+    </sensor>
+  </gazebo>
+
+</robot>

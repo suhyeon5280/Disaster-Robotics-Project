@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>robot_bringup</name>
+  <version>0.1.0</version>
+  <description>SLAM(slam_toolbox), Nav2, LiDAR 실행 설정과 launch. 시뮬레이션과 실물에 같이 쓴다.</description>
+  <maintainer email="u260208@kist.re.kr">suhyeon</maintainer>
+  <license>TODO</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- robot.launch.py가 실물 모터부와 로봇 모델을 함께 켠다 -->
+  <exec_depend>robot_base</exec_depend>
+  <exec_depend>robot_description</exec_depend>
+  <exec_depend>rplidar_ros</exec_depend>
+  <!-- mode:=base에서 방향키로 조종할 때 쓴다 -->
+  <exec_depend>key_teleop</exec_depend>
+  <exec_depend>slam_toolbox</exec_depend>
+  <exec_depend>nav2_map_server</exec_depend>
+  <exec_depend>nav2_bringup</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

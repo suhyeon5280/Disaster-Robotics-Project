@@ -1,0 +1,9 @@
+# RPLIDAR A1M8-R6 드라이버(rplidar_ros) 설정. 값은 rplidar_ros의 rplidar_a1_launch.py와 같다.
+# 포트는 launch 인자 lidar_port로 준다 (기본 /dev/ttyUSB0).
+rplidar_node:
+  ros__parameters:
+    channel_type: serial
+    serial_baudrate: 115200      # A1 고정값
+    frame_id: laser              # URDF의 laser 링크
+    inverted: false
+    angle_compensate: true       # 한 바퀴의 점들을 고른 각도 간격으로 맞춰 /scan으로 낸다

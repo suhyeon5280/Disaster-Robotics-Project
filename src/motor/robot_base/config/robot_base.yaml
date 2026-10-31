@@ -1,0 +1,26 @@
+# robot_base 노드 파라미터. 포트는 launch 인자 port로 준다 (기본 /dev/ttyACM0).
+# 실수 값에는 소수점을 꼭 붙인다 (1000 X, 1000.0 O). 정수로 쓰면 타입 오류로 노드가 뜨지 않는다.
+robot_base:
+  ros__parameters:
+    baud_rate: 115200
+
+    # 로봇 치수. 실측으로 바꾸면 robot_description의 robot.urdf.xacro도 같이 고친다.
+    wheel_radius_m: 0.0335          # CAD 값 (바퀴 지름 67mm). 오도메트리 보정으로 확정
+    wheel_base_m: 0.178             # CAD 값 (두 바퀴 중심 사이). 오도메트리 보정으로 확정
+    left_ticks_per_rev: 1000.0      # 임시값. motor_encoder_test로 실측 (이론값 44 × 감속비)
+    right_ticks_per_rev: 1000.0     # 임시값
+    max_wheel_speed_mps: 0.35       # 이론 최대 0.46 (130rpm × π × 0.067m)에서 PID 여유분을 남김
+
+    # 펌웨어 바퀴 속도 제어 게인 (듀티 ±255 기준). 시작할 때 G 메시지로 보낸다.
+    # 실행 중 변경: ros2 param set /robot_base kp 0.08  (소수점 필수)
+    kff: 0.06                       # 시작값, 튜닝 필요
+    kp: 0.05
+    ki: 0.3
+
+    # 주기와 타임아웃
+    command_rate_hz: 20.0           # V 전송 주기. 펌웨어 타임아웃(500ms) 때문에 최소 10Hz
+    cmd_vel_timeout_s: 0.5          # /cmd_vel이 이 시간 동안 없으면 정지 명령을 보냄
+    serial_poll_rate_hz: 100.0      # 시리얼 수신 확인 주기
+
+    odom_frame_id: odom
+    base_frame_id: base_link

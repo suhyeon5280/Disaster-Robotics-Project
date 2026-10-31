@@ -1,0 +1,153 @@
+<?xml version="1.0"?>
+<!--
+  로봇 모델. Fusion 360 export(docs/cad/urdf_1.zip)를 ROS 규칙에 맞게 정리했다.
+
+  base_link: 원점 = 두 바퀴 축 중심, x = 앞, y = 왼쪽, z = 위.
+  앞 = RPLIDAR 모터 부분(헤드 옆으로 튀어나온 부분)의 반대쪽. 왼쪽/오른쪽은 로봇 뒤에서 앞을 보고 정한다.
+  CAD 프레임과의 관계: x = CAD -Y, y = CAD +X, 원점은 CAD 원점보다 24.75mm 위(바퀴 축 높이).
+  보이는 모양은 CAD 메시, 충돌체는 단순 도형(상자, 원기둥, 구)이다.
+
+  Gazebo 설정은 여기 두지 않는다 (src/sim/robot_gazebo에서 추가). 실물도 이 파일을 쓴다.
+-->
+<robot name="robot" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- ===== 치수 (m). CAD에서 계산한 값이다. 실측으로 바뀌면 robot_base.yaml과 함께 고친다. ===== -->
+  <xacro:property name="wheel_radius" value="0.0335"/>       <!-- 바퀴 지름 67mm -->
+  <xacro:property name="wheel_width" value="0.026"/>
+  <xacro:property name="wheel_separation" value="0.178"/>    <!-- 두 바퀴 중심 사이 -->
+  <xacro:property name="caster_offset_x" value="0.060"/>     <!-- 바퀴 축에서 앞/뒤 캐스터 중심까지 -->
+  <xacro:property name="caster_radius" value="0.0073"/>
+  <!-- 구동 바퀴가 항상 바닥을 잡도록 캐스터 충돌체를 바닥에서 띄운다 (실물에도 권장하는 설계) -->
+  <xacro:property name="caster_clearance" value="0.001"/>
+  <!-- RPLIDAR A1 헤드 중간 높이. 실물 스캔 높이와 0° 방향은 하드웨어 확인 때 맞춘다. -->
+  <xacro:property name="laser_z" value="0.160"/>
+  <xacro:property name="laser_yaw" value="0.0"/>
+  <xacro:property name="cad_axle_height" value="0.02475"/>   <!-- CAD 원점에서 바퀴 축까지 -->
+
+  <!-- 충돌용 차체 상자: CAD 바닥판 아래면부터 LiDAR 꼭대기까지 -->
+  <xacro:property name="body_size_x" value="0.140"/>
+  <xacro:property name="body_size_y" value="0.140"/>          <!-- 바퀴 안쪽 면(±0.076)보다 좁게 -->
+  <xacro:property name="body_bottom_z" value="-0.02475"/>
+  <xacro:property name="body_top_z" value="0.1707"/>
+
+  <!-- 질량 (CAD가 모든 부품을 ABS로 보고 계산한 값). 실물 무게를 재면 교체한다. -->
+  <xacro:property name="base_mass" value="0.9249"/>
+  <xacro:property name="wheel_mass" value="0.052668"/>
+  <xacro:property name="small_mass" value="0.001"/>          <!-- 캐스터, laser 링크용 -->
+
+  <xacro:property name="mesh_dir" value="package://robot_description/meshes"/>
+
+  <!-- 바퀴 충돌체 모양: cylinder(실제 모양, 기본) 또는 sphere. 시뮬레이션은 sphere를 쓴다 (robot_gazebo 참고). -->
+  <xacro:arg name="wheel_collision" default="cylinder"/>
+
+  <material name="body_blue">
+    <color rgba="0.145 0.671 0.953 1.0"/>
+  </material>
+  <material name="wheel_gray">
+    <color rgba="0.25 0.25 0.25 1.0"/>
+  </material>
+
+  <!-- 고정 링크용 아주 작은 관성 (Gazebo가 질량 없는 링크를 버리지 않게) -->
+  <xacro:macro name="small_inertial">
+    <inertial>
+      <mass value="${small_mass}"/>
+      <inertia ixx="1e-7" ixy="0" ixz="0" iyy="1e-7" iyz="0" izz="1e-7"/>
+    </inertial>
+  </xacro:macro>
+
+  <!-- ===== base_link ===== -->
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 ${-cad_axle_height}" rpy="0 0 ${pi/2}"/>
+      <geometry>
+        <mesh filename="${mesh_dir}/base_link.dae"/>
+      </geometry>
+      <material name="body_blue"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 ${(body_bottom_z + body_top_z) / 2}"/>
+      <geometry>
+        <box size="${body_size_x} ${body_size_y} ${body_top_z - body_bottom_z}"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <!-- CAD 무게중심과 관성을 ROS 프레임으로 회전한 값 -->
+      <origin xyz="-0.001963 0 0.068628"/>
+      <mass value="${base_mass}"/>
+      <inertia ixx="4.193801e-03" ixy="-2.749865e-08" ixz="7.799567e-05"
+               iyy="4.182968e-03" iyz="6.145221e-08" izz="1.939995e-03"/>
+    </inertial>
+  </link>
+
+  <!-- ===== 구동 바퀴: 회전축 +y, 양수 회전 = 전진 ===== -->
+  <xacro:macro name="drive_wheel" params="side reflect visual_xyz visual_rpy">
+    <link name="${side}_wheel">
+      <visual>
+        <!-- CAD 바퀴 메시를 바퀴 중심 프레임으로 옮기는 값 (CAD export에서 계산) -->
+        <origin xyz="${visual_xyz}" rpy="${visual_rpy}"/>
+        <geometry>
+          <mesh filename="${mesh_dir}/${side}_wheel.dae"/>
+        </geometry>
+        <material name="wheel_gray"/>
+      </visual>
+      <collision>
+        <xacro:if value="${'$(arg wheel_collision)' == 'sphere'}">
+          <geometry>
+            <sphere radius="${wheel_radius}"/>
+          </geometry>
+        </xacro:if>
+        <xacro:unless value="${'$(arg wheel_collision)' == 'sphere'}">
+          <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
+          <geometry>
+            <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
+          </geometry>
+        </xacro:unless>
+      </collision>
+      <inertial>
+        <mass value="${wheel_mass}"/>
+        <!-- CAD 값: 회전축(y) 방향 3.51e-5, 나머지 1.98e-5 -->
+        <inertia ixx="1.979552e-05" ixy="0" ixz="0" iyy="3.510455e-05" iyz="0" izz="1.979552e-05"/>
+      </inertial>
+    </link>
+    <joint name="${side}_wheel_joint" type="continuous">
+      <parent link="base_link"/>
+      <child link="${side}_wheel"/>
+      <origin xyz="0 ${reflect * wheel_separation / 2} 0" rpy="0 0 0"/>
+      <axis xyz="0 1 0"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:drive_wheel side="left" reflect="1" visual_xyz="0 -0.013 0" visual_rpy="${-pi} 0 ${pi/2}"/>
+  <xacro:drive_wheel side="right" reflect="-1" visual_xyz="0 0.013 0" visual_rpy="0 0 ${-pi/2}"/>
+
+  <!-- ===== 볼 캐스터 (앞, 뒤). 모양은 base_link 메시에 들어 있으므로 충돌체만 둔다. ===== -->
+  <xacro:macro name="caster" params="name x">
+    <link name="${name}">
+      <collision>
+        <geometry>
+          <sphere radius="${caster_radius}"/>
+        </geometry>
+      </collision>
+      <xacro:small_inertial/>
+    </link>
+    <joint name="${name}_joint" type="fixed">
+      <parent link="base_link"/>
+      <child link="${name}"/>
+      <origin xyz="${x} 0 ${-wheel_radius + caster_radius + caster_clearance}"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:caster name="front_caster" x="${caster_offset_x}"/>
+  <xacro:caster name="rear_caster" x="${-caster_offset_x}"/>
+
+  <!-- ===== LiDAR 스캔 프레임. 모양은 base_link 메시에 들어 있다. ===== -->
+  <link name="laser">
+    <xacro:small_inertial/>
+  </link>
+  <joint name="laser_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="laser"/>
+    <origin xyz="0 0 ${laser_z}" rpy="0 0 ${laser_yaw}"/>
+  </joint>
+
+</robot>
